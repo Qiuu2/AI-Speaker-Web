@@ -25,7 +25,7 @@ jest.mock('axios', () => {
 const elementStubs = [
   'el-button', 'el-tooltip', 'el-drawer', 'el-input', 'el-tabs', 'el-tab-pane',
   'el-collapse', 'el-collapse-item', 'el-popover', 'el-select', 'el-option',
-  'el-tag', 'el-input-number', 'el-date-picker', 'el-radio-group', 'el-radio-button'
+  'el-tag', 'el-input-number', 'el-date-picker', 'el-time-select', 'el-radio-group', 'el-radio-button'
 ]
 
 function createWrapper() {
@@ -98,12 +98,20 @@ describe('T100 buildLockedDirective — 两张映射 + 列表判据', () => {
     expect(vm.buildLockedDirective(item, 'x').intent).toBe('move_schedule')
   })
 
-  it('任务取消(cancel)→ cancel_schedule', () => {
+  // T122: 取消命令已改成"按天 / 按时段"(无方案槽,跨所有启用方案 + 文件广播)。
+  // 默认变体 = date(按天),选日期 → 锁 cancel_schedule + 整天 time_range,不锁方案。
+  it('任务取消 按天(选日期)→ cancel_schedule + 整天 time_range(不锁方案,跨所有)', () => {
     const item = manualItem(vm, 'schedule-task-cancel')
-    selectSlots(vm, 'schedule-task-cancel', { 方案: '6.25cs' })
+    selectSlots(vm, 'schedule-task-cancel', { 日期: '2026-07-01' })
     const directive = vm.buildLockedDirective(item, 'x')
     expect(directive.intent).toBe('cancel_schedule')
-    expect(directive.slots).toEqual({ schedule_name: '6.25cs' })
+    // f1(BLOCKER):跨所有启用方案靠 schedule_scope='enabled_all',不锁 schedule_name。
+    expect(directive.slots).toEqual({
+      time_range_start: '2026-07-01 00:00',
+      time_range_end: '2026-07-01 23:59',
+      schedule_scope: 'enabled_all'
+    })
+    expect('schedule_name' in directive.slots).toBe(false)
   })
 
   it('方案手打列表外值 → 不锁(null)', () => {

@@ -997,6 +997,8 @@ describe('TaskSchedulerPage', () => {
       toDurationSeconds: () => 30,
       loadModules,
       closeTaskDrawer,
+      // saveTaskDrawer (2023c8e) delegates to the private _saveTaskDrawerImpl.
+      _saveTaskDrawerImpl: methods._saveTaskDrawerImpl,
       $message: message
     })
 

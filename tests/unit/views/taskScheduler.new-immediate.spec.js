@@ -53,6 +53,9 @@ function baseOpsCtx(overrides = {}) {
     commitPlanOperations: methods.commitPlanOperations,
     executePlanOperations: methods.executePlanOperations,
     createPlanImmediate: methods.createPlanImmediate,
+    // saveTaskDrawer (2023c8e) now delegates to a private _saveTaskDrawerImpl;
+    // wire the real impl so the direct saveTaskDrawer.call(ctx) tests resolve it.
+    _saveTaskDrawerImpl: methods._saveTaskDrawerImpl,
     // T47: create paths run a guarded stale-draft clear; wire the real helpers
     // so the call doesn't throw (draftState starts clean → it is a no-op here).
     clearStalePlanDraftAfterCreate: methods.clearStalePlanDraftAfterCreate,

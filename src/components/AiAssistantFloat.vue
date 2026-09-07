@@ -450,20 +450,37 @@
                                         {{ preset }}
                                       </button>
                                     </div>
-                                    <el-input
-                                      :value="getStructuredTimeField(item, seg.key, 'detail')"
-                                      size="small"
-                                      clearable
-                                      placeholder="例如：下午2点到6点"
-                                      @input="updateStructuredTimeField(item, seg.key, 'detail', $event)"
-                                    />
+                                    <div class="time-range-selects">
+                                      <el-time-select
+                                        :value="getStructuredTimeField(item, seg.key, 'startTime')"
+                                        size="small"
+                                        placeholder="开始时间"
+                                        :picker-options="{ start: '00:00', step: '00:15', end: '23:45' }"
+                                        class="time-range-select"
+                                        @input="updateStructuredTimeField(item, seg.key, 'startTime', $event)"
+                                      />
+                                      <span class="time-range-sep">到</span>
+                                      <el-time-select
+                                        :value="getStructuredTimeField(item, seg.key, 'endTime')"
+                                        size="small"
+                                        placeholder="结束时间"
+                                        :picker-options="{
+                                          start: '00:00',
+                                          step: '00:15',
+                                          end: '23:45',
+                                          minTime: getStructuredTimeField(item, seg.key, 'startTime')
+                                        }"
+                                        class="time-range-select"
+                                        @input="updateStructuredTimeField(item, seg.key, 'endTime', $event)"
+                                      />
+                                    </div>
                                     <div
                                       :class="[
                                         'time-range-hint',
                                         { invalid: Boolean(getStructuredTimeError(item, seg.key)) }
                                       ]"
                                     >
-                                      {{ getStructuredTimeError(item, seg.key) || '先选今天/明天/周一，再补充具体时间段' }}
+                                      {{ getStructuredTimeError(item, seg.key) || '先选今天/明天/后天，再选起止时间' }}
                                     </div>
                                     <div class="time-range-preview">
                                       {{ getStructuredTimePreview(item, seg.key) }}
@@ -867,6 +884,12 @@ const LOCKED_SCHEDULE_SLOT_KEY = 'schedule_name'
 // T108: FE 任务槽(slotType='task')锁定时映射到后端槽位 key。后端 phase-1 anchor
 // 过滤(_match_tasks_for_phase1_anchor)按 task_name 收窄到选中的那条,空则塌回全天。
 const LOCKED_TASK_SLOT_KEY = 'task_name'
+// T122: 取消"按天 / 按时段"= 跨所有启用方案 + 文件广播。后端 _resolve_phase1_schedule_targets
+// (api_public.py:10482/:10489)读 schedule_scope=='enabled_all' 才枚举全部启用方案;缺它
+// 时空 schedule_name + 2+ 启用方案会掉进 target_disambiguation(逼选方案),且当天有广播时
+// 守卫会静默只取消广播、丢掉全部作息任务(critic probe D 实锤)。故必须锁 enabled_all。
+const LOCKED_SCHEDULE_SCOPE_KEY = 'schedule_scope'
+const LOCKED_SCHEDULE_SCOPE_ALL = 'enabled_all'
 
 api.interceptors.request.use((config) => {
   const token = getToken()
@@ -1204,29 +1227,32 @@ export default {
             {
               id: 'schedule-task-cancel',
               title: '任务取消',
-              defaultVariant: 'task',
+              defaultVariant: 'date',
               variantOptions: [
-                { label: '任务', value: 'task' },
-                { label: '日期', value: 'date' }
+                { label: '按天', value: 'date' },
+                { label: '按时段', value: 'timerange' }
               ],
               variants: {
-                task: {
-                  template: '取消[方案]里[日期]的[任务]任务',
-                  examples: ['取消春季作息里2026-03-24的眼保健操', '取消春季作息里2026-03-24到2026-03-28的眼保健操'],
-                  required: ['方案', '日期', '任务'],
+                // T122: "按天" = 取消某天(跨所有启用方案 + 当天定时的文件广播)会响的
+                // 全部任务,不选方案。保留日期区间(如 3月24到28号)。锁 intent + 结构化
+                // 整天时段(time_range_start/end),跳 NLU。
+                date: {
+                  template: '取消[日期]的任务',
+                  examples: ['取消2026-03-24的任务', '取消2026-03-24到2026-03-28的任务'],
+                  required: ['日期'],
                   slotMap: {
-                    方案: { type: 'schedule', display: '方案' },
-                    日期: { type: 'calendarDateWithMode', display: '日期' },
-                    任务: { type: 'task', display: '任务', dependsOn: '方案' }
+                    日期: { type: 'calendarDateWithMode', display: '日期' }
                   }
                 },
-                date: {
-                  template: '取消[方案]里[日期]的任务',
-                  examples: ['取消春季作息里2026-03-24的任务', '取消春季作息里2026-03-24到2026-03-28的任务'],
-                  required: ['方案', '日期'],
+                // T122: "按时段" = 取消某天某个时段(如今天 14:00-18:00)会响的任务,同样
+                // 跨所有方案 + 文件广播。用结构化时间选择器(anchor 今天/明天/后天 + 起止
+                // 时间下拉,非自由打字),锁成后端认的 time_range_start/end 具体日期时刻。
+                timerange: {
+                  template: '取消[时段]的任务',
+                  examples: ['取消今天14:00到18:00的任务', '取消明天08:00到09:00的任务'],
+                  required: ['时段'],
                   slotMap: {
-                    方案: { type: 'schedule', display: '方案' },
-                    日期: { type: 'calendarDateWithMode', display: '日期' }
+                    时段: { type: 'structuredTimeRange', display: '时段', presets: ['今天', '明天', '后天'] }
                   }
                 }
               }
@@ -2125,17 +2151,37 @@ export default {
       this.setSlotValue(itemOrId, key, value)
       this.setSlotPopoverVisible(itemOrId, key, false)
     },
+    // T122: 结构化时段 = 日期锚点(今天 / 明天 / 后天)+ 起止时间(HH:MM),形如
+    // "今天14:00到18:00"。反解成 { anchor, startTime, endTime },供选择器回显。
     parseStructuredTimeValue(value) {
       const text = String(value || '').trim()
       const presets = this.getStructuredTimePresets()
       const matchedPreset = presets.find((preset) => text.startsWith(preset))
-      if (!matchedPreset) {
-        return { anchor: '', detail: text }
+      const anchor = matchedPreset || ''
+      const remainder = matchedPreset ? text.slice(matchedPreset.length).trim() : text
+      let startTime = ''
+      let endTime = ''
+      if (remainder.includes('到')) {
+        const parts = remainder.split('到')
+        startTime = this.normalizeClockTime(parts[0])
+        endTime = this.normalizeClockTime(parts[1])
       }
-      return {
-        anchor: matchedPreset,
-        detail: text.slice(matchedPreset.length).trim()
-      }
+      return { anchor, startTime, endTime }
+    },
+    // T122: 校验 / 归一 "HH:MM"(单选器给的值),非法返回 ''。
+    normalizeClockTime(value) {
+      const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/)
+      if (!match) return ''
+      const hh = Number(match[1])
+      const mm = Number(match[2])
+      if (hh > 23 || mm > 59) return ''
+      return `${String(hh).padStart(2, '0')}:${match[2]}`
+    },
+    clockToMinutes(value) {
+      const normalized = this.normalizeClockTime(value)
+      if (!normalized) return -1
+      const [hh, mm] = normalized.split(':').map(Number)
+      return hh * 60 + mm
     },
     getStructuredTimePresets(seg = null) {
       if (Array.isArray(seg?.presets) && seg.presets.length) return seg.presets
@@ -2161,24 +2207,28 @@ export default {
     clearStructuredTimeField(itemOrId, key) {
       const state = this.getStructuredTimeState(itemOrId, key)
       this.$set(state, 'anchor', '')
-      this.$set(state, 'detail', '')
+      this.$set(state, 'startTime', '')
+      this.$set(state, 'endTime', '')
       this.setSlotValue(itemOrId, key, '')
     },
     formatStructuredTimeValue(itemOrId, key) {
       const state = this.getStructuredTimeState(itemOrId, key)
-      if (!state.anchor || !state.detail) return ''
-      return `${state.anchor}${state.detail}`
+      if (!state.anchor || !state.startTime || !state.endTime) return ''
+      return `${state.anchor}${state.startTime}到${state.endTime}`
     },
     getStructuredTimeError(itemOrId, key) {
       const state = this.getStructuredTimeState(itemOrId, key)
-      if (!state.anchor || !state.detail) {
+      if (!state.anchor || !state.startTime || !state.endTime) {
         return ''
+      }
+      if (this.clockToMinutes(state.endTime) <= this.clockToMinutes(state.startTime)) {
+        return '结束时间要晚于开始时间'
       }
       return ''
     },
     canConfirmStructuredTime(itemOrId, key) {
       const state = this.getStructuredTimeState(itemOrId, key)
-      if (!state.anchor || !state.detail) return false
+      if (!state.anchor || !state.startTime || !state.endTime) return false
       return !this.getStructuredTimeError(itemOrId, key)
     },
     getStructuredTimePreview(itemOrId, key) {
@@ -2224,7 +2274,7 @@ export default {
       if (seg?.slotType === 'calendarDate') return '请选择日期'
       if (seg?.slotType === 'calendarDateRange') return '请选择日期范围'
       if (seg?.slotType === 'calendarDateWithMode') return '请选择单日或多日'
-      if (seg?.slotType === 'structuredTimeRange') return '先选今天/明天/周一，再补时间'
+      if (seg?.slotType === 'structuredTimeRange') return '先选今天/明天/后天，再选起止时间'
       if (seg?.slotType === 'textChoice') return '请选择动作'
       if (this.usesSelectableOptions(seg)) return '选择或输入'
       return '请输入'
@@ -2641,19 +2691,91 @@ export default {
     buildLockedDirective(item, text) {
       const intent = this.resolveManualLockedIntent(item)
       if (!intent) return null
-      const scheduleValue = this.getSelectedScheduleValue(item)
-      if (!scheduleValue) return null
-      if (!this.getScheduleOption(scheduleValue)) return null
-      const slots = { [LOCKED_SCHEDULE_SLOT_KEY]: scheduleValue }
-      // T108: migrate/cancel"任务"变体——用户从下拉选了具体任务时,把选中的任务名
-      // 也锁进 locked_slots.task_name。否则任务名被拍平进 text 走 NLU,中文任务名欠
-      // 抽取(T90 B2b)→ task_name 空 → 后端 phase-1 anchor 过滤短路 → 当天全表命中。
-      // 仅当 task 槽存在且已选中才锁;日期变体(无 task 槽)不锁,保住"挪当天全部"。
-      const taskValue = this.getSelectedTaskValue(item)
-      if (taskValue) {
-        slots[LOCKED_TASK_SLOT_KEY] = taskValue
+      // 带方案槽的作息命令(启用 / 停用 / 迁移 / 交换):方案必须从真列表选中才锁,
+      // 手打列表外值命不中 getScheduleOption → 不锁(退回 NLU),锁错方案身份比不锁更糟。
+      const scheduleKey = this.getScheduleSlotKey(item)
+      if (scheduleKey) {
+        const scheduleValue = this.getSelectedScheduleValue(item)
+        if (!scheduleValue) return null
+        if (!this.getScheduleOption(scheduleValue)) return null
+        const slots = { [LOCKED_SCHEDULE_SLOT_KEY]: scheduleValue }
+        // T108: migrate/cancel"任务"变体——用户从下拉选了具体任务时,把选中的任务名
+        // 也锁进 locked_slots.task_name。否则任务名被拍平进 text 走 NLU,中文任务名欠
+        // 抽取(T90 B2b)→ task_name 空 → 后端 phase-1 anchor 过滤短路 → 当天全表命中。
+        // 仅当 task 槽存在且已选中才锁;日期变体(无 task 槽)不锁,保住"挪当天全部"。
+        const taskValue = this.getSelectedTaskValue(item)
+        if (taskValue) {
+          slots[LOCKED_TASK_SLOT_KEY] = taskValue
+        }
+        return { text, intent, slots }
       }
-      return { text, intent, slots }
+      // T122: 无方案槽的取消命令(按天 / 按时段)——语义 = 跨所有启用方案 + 当天定时
+      // 文件广播,不锁方案(留空 → 后端枚举所有启用方案 + 折入广播)。只锁 intent +
+      // 结构化时段(time_range_start/end),彻底跳 NLU。仅 cancel_schedule 走此分支。
+      if (intent !== 'cancel_schedule') return null
+      const scopeSlots = this.resolveCancelScopeLockedSlots(item)
+      if (!scopeSlots) return null
+      return { text, intent, slots: scopeSlots }
+    },
+    // T122: 把"按天 / 按时段"变体选中的结构化日期 / 时段,解析成后端 cancel 时间上下文
+    // 认的两个键(_resolve_cancel_schedule_time_context 读 time_range_start /
+    // time_range_end,api_public.py:7807-7808)。格式 "YYYY-MM-DD HH:MM"(与后端
+    // _parse_phase1_date → _parse_datetime 一致,见 test time_range_start "2026-03-23 08:00")。
+    // 同时锁 schedule_scope='enabled_all'(f1 BLOCKER)——否则空 schedule_name + 2+ 启用
+    // 方案会掉 target_disambiguation / 当天有广播时静默只删广播丢作息任务。
+    // 不完整(未选全)→ 返回 null → 不锁,退回 text NLU。
+    resolveCancelScopeLockedSlots(item) {
+      const manualItem = this.resolveManualItem(item)
+      const slotMap = manualItem.slotMap || {}
+      const timeKey = Object.keys(slotMap).find((key) => {
+        const meta = slotMap[key]
+        return meta && meta.type === 'structuredTimeRange'
+      })
+      if (timeKey) {
+        // 按时段:anchor(今天 / 明天 / 后天)解析成具体日期,拼上起止时间。
+        const state = this.getStructuredTimeState(item, timeKey)
+        const startTime = this.normalizeClockTime(state.startTime)
+        const endTime = this.normalizeClockTime(state.endTime)
+        if (!state.anchor || !startTime || !endTime) return null
+        if (this.clockToMinutes(endTime) <= this.clockToMinutes(startTime)) return null
+        const date = this.resolveStructuredAnchorDate(state.anchor)
+        if (!date) return null
+        return {
+          time_range_start: `${date} ${startTime}`,
+          time_range_end: `${date} ${endTime}`,
+          [LOCKED_SCHEDULE_SCOPE_KEY]: LOCKED_SCHEDULE_SCOPE_ALL
+        }
+      }
+      const dateKey = Object.keys(slotMap).find((key) => {
+        const meta = slotMap[key]
+        return meta && meta.type === 'calendarDateWithMode'
+      })
+      if (dateKey) {
+        // 按天:单日 → 整天 [00:00, 23:59];日期区间 "A到B" → [A 00:00, B 23:59]。
+        // 后端 _task_matches_range 对 00:00~23:59 窗口覆盖全天所有任务(已核对)。
+        const range = this.parseCalendarRangeText(this.getSlotValue(item, dateKey))
+        if (range.length < 2) return null
+        return {
+          time_range_start: `${range[0]} 00:00`,
+          time_range_end: `${range[1]} 23:59`,
+          [LOCKED_SCHEDULE_SCOPE_KEY]: LOCKED_SCHEDULE_SCOPE_ALL
+        }
+      }
+      return null
+    },
+    // T122: 把相对日期锚点解析成具体 YYYY-MM-DD(FE 端定死,不依赖后端"今天"解析,
+    // 避免 FE/BE 跨日边界漂移,见 KP #23)。只认 今天 / 明天 / 后天,其余返回 ''。
+    resolveStructuredAnchorDate(anchor) {
+      const offsets = { 今天: 0, 今日: 0, 明天: 1, 明日: 1, 后天: 2 }
+      const key = String(anchor || '').trim()
+      if (!(key in offsets)) return ''
+      const target = new Date()
+      target.setHours(0, 0, 0, 0)
+      target.setDate(target.getDate() + offsets[key])
+      const yyyy = target.getFullYear()
+      const mm = String(target.getMonth() + 1).padStart(2, '0')
+      const dd = String(target.getDate()).padStart(2, '0')
+      return `${yyyy}-${mm}-${dd}`
     },
     // T100: 发送时一次性消费锁定 directive。始终清掉(one-shot,防污染后续命令),
     // 仅当待发文本仍与模板填出的原文逐字相同(用户没改过)时才返回锁。
