@@ -1,16 +1,12 @@
 module.exports = {
-
-  title: '智慧音响调度平台',
-
-  /**
-   * @type {boolean} true | false
-   * @description Whether fix the header
-   */
+  title: '浩探AI',
+  brandName: '浩探AI',
+  brandProductName: '浩探AI智慧音响调度平台',
+  brandSubtitle: '智慧音响调度平台',
+  brandDescription: '面向校园广播、终端联动与智能编排场景打造的一体化智能调度中枢。',
+  sidebarBrandDescription: '校园广播智能调度中枢',
+  remoteApiPort: '99',
+  remoteApiPath: '/api',
   fixedHeader: false,
-
-  /**
-   * @type {boolean} true | false
-   * @description Whether show the logo in sidebar
-   */
-  sidebarLogo: false
+  sidebarLogo: true
 }

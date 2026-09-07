@@ -19,14 +19,20 @@ export default {
 
 <style scoped>
 .app-main {
-  /*50 = navbar  */
   min-height: calc(100vh - 50px);
+  min-height: calc(100dvh - 50px);
   width: 100%;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 .fixed-header+.app-main {
   padding-top: 50px;
+}
+
+@media (max-width: 768px) {
+  .fixed-header+.app-main {
+    padding-top: calc(50px + env(safe-area-inset-top));
+  }
 }
 </style>
 

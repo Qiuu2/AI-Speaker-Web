@@ -20,7 +20,8 @@
 </template>
 
 <script>
-import { loadSchedulerData } from '@/utils/schedulerStorage'
+import { fetchLivecasts } from '@/api/dataService'
+import { offAssistantRefresh, onAssistantRefresh } from '@/utils/assistantRefreshBus'
 
 export default {
   name: 'LiveCast',
@@ -31,11 +32,27 @@ export default {
   },
   created() {
     this.loadData()
+    onAssistantRefresh(this.handleAssistantRefresh)
+  },
+  beforeDestroy() {
+    offAssistantRefresh(this.handleAssistantRefresh)
   },
   methods: {
-    loadData() {
-      this.livecasts = loadSchedulerData().livecasts || []
-      this.$message.success('已从任务编排同步采播数据')
+    async loadData(silent = false) {
+      try {
+        const payload = await fetchLivecasts()
+        this.livecasts = Array.isArray(payload?.livecasts) ? payload.livecasts : []
+        if (!silent) {
+          this.$message.success('已从后端同步采播数据')
+        }
+      } catch (err) {
+        this.livecasts = []
+        this.$message.error('加载采播数据失败，请检查后端接口')
+      }
+    },
+    handleAssistantRefresh(payload = {}) {
+      if (String(payload?.runtime_scope || '').trim() === 'temp_task') return
+      this.loadData(true)
     },
     tagType(status) {
       if (status === '执行中' || status === '启用') return 'success'

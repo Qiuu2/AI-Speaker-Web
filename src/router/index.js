@@ -38,6 +38,12 @@ export const constantRoutes = [
   },
 
   {
+    path: '/license',
+    component: () => import('@/views/license/index'),
+    hidden: true
+  },
+
+  {
     path: '/404',
     component: () => import('@/views/404'),
     hidden: true
@@ -63,7 +69,7 @@ export const constantRoutes = [
       path: 'index',
       name: 'TaskManagement',
       component: () => import('@/views/task-management/index'),
-      meta: { title: '任务管理', icon: 'el-icon-date' }
+      meta: { title: '每日任务', icon: 'el-icon-date' }
     }]
   },
 
@@ -106,12 +112,38 @@ export const constantRoutes = [
   {
     path: '/live-cast',
     component: Layout,
+    // 临时隐藏“采播管理”侧边栏入口；恢复时保留此路由并移除 hidden 即可。
+    hidden: true,
     redirect: '/live-cast/index',
     children: [{
       path: 'index',
       name: 'LiveCast',
       component: () => import('@/views/live-cast/index'),
       meta: { title: '采播管理', icon: 'el-icon-headset' }
+    }]
+  },
+
+  {
+    path: '/quick-actions',
+    component: Layout,
+    redirect: '/quick-actions/index',
+    children: [{
+      path: 'index',
+      name: 'QuickActions',
+      component: () => import('@/views/quick-actions/index'),
+      meta: { title: '快捷面板', icon: 'el-icon-magic-stick' }
+    }]
+  },
+
+  {
+    path: '/assistant-timeline',
+    component: Layout,
+    redirect: '/assistant-timeline/index',
+    children: [{
+      path: 'index',
+      name: 'AssistantTimeline',
+      component: () => import('@/views/assistant-timeline/index'),
+      meta: { title: 'AI 时间轴', icon: 'el-icon-time' }
     }]
   },
 

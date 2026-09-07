@@ -1,237 +1,664 @@
 <template>
-  <div class="login-container">
-    <el-form ref="loginForm" :model="loginForm" :rules="loginRules" class="login-form" auto-complete="on" label-position="left">
+  <div class="login-container" :style="backgroundStyle">
+    <div class="login-overlay" />
+    <div class="login-panel">
+      <section class="login-copy">
+        <div class="brand-logo-shell">
+          <div class="brand-logo-glow" />
+          <img :src="brandLogo" :alt="brandName" class="brand-logo">
+        </div>
+        <div class="brand-text">
+          <p class="brand-kicker">{{ brandSubtitle }}</p>
+          <h1 class="login-title">
+            <span class="title-line">{{ titlePrimary }}</span>
+            <span class="title-line">{{ titleSecondary }}</span>
+          </h1>
+          <p class="login-subtitle">{{ brandDescription }}</p>
+        </div>
+      </section>
 
-      <div class="title-container">
-        <h3 class="title">Login Form</h3>
-      </div>
+      <section class="login-card">
+        <div class="card-header">
+          <h2 class="card-title">账号密码登录</h2>
+          <p class="card-subtitle">请先确认本站点对应的远端地址，再输入远端平台账号和密码完成身份校验。</p>
+        </div>
 
-      <el-form-item prop="username">
-        <span class="svg-container">
-          <svg-icon icon-class="user" />
-        </span>
-        <el-input
-          ref="username"
-          v-model="loginForm.username"
-          placeholder="Username"
-          name="username"
-          type="text"
-          tabindex="1"
-          auto-complete="on"
+        <el-alert
+          v-if="tokenHint"
+          :title="tokenHint"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="inline-alert"
         />
-      </el-form-item>
 
-      <el-form-item prop="password">
-        <span class="svg-container">
-          <svg-icon icon-class="password" />
-        </span>
-        <el-input
-          :key="passwordType"
-          ref="password"
-          v-model="loginForm.password"
-          :type="passwordType"
-          placeholder="Password"
-          name="password"
-          tabindex="2"
-          auto-complete="on"
-          @keyup.enter.native="handleLogin"
+        <el-alert
+          v-if="errorMessage"
+          :title="errorMessage"
+          type="error"
+          :closable="false"
+          show-icon
+          class="inline-alert"
         />
-        <span class="show-pwd" @click="showPwd">
-          <svg-icon :icon-class="passwordType === 'password' ? 'eye' : 'eye-open'" />
-        </span>
-      </el-form-item>
 
-      <el-button :loading="loading" type="primary" style="width:100%;margin-bottom:30px;" @click.native.prevent="handleLogin">Login</el-button>
+        <el-form @submit.native.prevent="handleLogin">
+          <template v-if="showRemoteBaseUrlField">
+            <label class="field-label" for="login-remote-base-url">远端地址</label>
+            <el-select
+              id="login-remote-base-url"
+              v-model="form.remoteBaseUrl"
+              class="remote-select"
+              filterable
+              allow-create
+              default-first-option
+              clearable
+              placeholder="请选择或输入远端地址"
+              :loading="bootstrapLoading"
+            >
+              <el-option
+                v-for="option in remoteBaseUrlOptions"
+                :key="option"
+                :label="option"
+                :value="option"
+              />
+            </el-select>
+            <p class="remote-hint">
+              默认建议格式为 `http://本机IP:99/api`，如现场端口或路径不同可手工修改。
+            </p>
+            <p v-if="candidateSummary" class="remote-hint">
+              本机候选地址：{{ candidateSummary }}
+            </p>
+          </template>
+          <template v-else>
+            <p class="remote-hint remote-current">
+              当前远端：<strong>{{ form.remoteBaseUrl }}</strong>
+              <a href="#" class="edit-remote-link" @click.prevent="editRemoteBaseUrl">修改</a>
+            </p>
+          </template>
 
-      <div class="tips">
-        <span style="margin-right:20px;">username: admin</span>
-        <span> password: any</span>
-      </div>
+          <label class="field-label field-gap" for="login-username">账号</label>
+          <el-input
+            id="login-username"
+            v-model.trim="form.username"
+            placeholder="请输入账号"
+            autocomplete="username"
+          />
 
-    </el-form>
+          <label class="field-label field-gap" for="login-password">密码</label>
+          <el-input
+            id="login-password"
+            v-model="form.password"
+            type="password"
+            placeholder="请输入密码"
+            autocomplete="current-password"
+            show-password
+            @keyup.enter.native="handleLogin"
+          />
+
+          <el-button class="action-button" type="primary" :loading="submitting" @click="handleLogin">
+            登录并继续
+          </el-button>
+        </el-form>
+      </section>
+    </div>
   </div>
 </template>
 
 <script>
-import { validUsername } from '@/utils/validate'
+import defaultSettings from '@/settings'
+import { getRemoteBootstrap } from '@/api/user'
+import heroBackground from '../../../interface.png'
+import brandLogo from '../../../only_logo.png'
+
+const REMOTE_BASE_URL_STORAGE_KEY = 'AI_SPEAKER_REMOTE_BASE_URL'
+const REMOTE_BASE_URL_CONFIRMED_KEY = 'AI_SPEAKER_REMOTE_BASE_URL_CONFIRMED'
 
 export default {
-  name: 'Login',
+  name: 'LoginView',
   data() {
-    const validateUsername = (rule, value, callback) => {
-      if (!validUsername(value)) {
-        callback(new Error('Please enter the correct user name'))
-      } else {
-        callback()
-      }
-    }
-    const validatePassword = (rule, value, callback) => {
-      if (value.length < 6) {
-        callback(new Error('The password can not be less than 6 digits'))
-      } else {
-        callback()
-      }
-    }
     return {
-      loginForm: {
-        username: 'admin',
-        password: '111111'
+      submitting: false,
+      bootstrapLoading: false,
+      errorMessage: '',
+      remoteBootstrap: {
+        candidates: [],
+        suggested_remote_base_urls: [],
+        saved_remote_base_url: ''
       },
-      loginRules: {
-        username: [{ required: true, trigger: 'blur', validator: validateUsername }],
-        password: [{ required: true, trigger: 'blur', validator: validatePassword }]
+      incomingRemoteBaseUrl: '',
+      persistedRemoteBaseUrl: '',
+      persistedRemoteBaseUrlConfirmed: false,
+      remoteBaseUrlConfirmed: false,
+      form: {
+        remoteBaseUrl: '',
+        username: '',
+        password: ''
       },
-      loading: false,
-      passwordType: 'password',
-      redirect: undefined
+      redirect: '/',
+      brandLogo,
+      heroBackground
     }
   },
-  watch: {
-    $route: {
-      handler: function(route) {
-        this.redirect = route.query && route.query.redirect
-      },
-      immediate: true
-    }
-  },
-  methods: {
-    showPwd() {
-      if (this.passwordType === 'password') {
-        this.passwordType = ''
-      } else {
-        this.passwordType = 'password'
+  computed: {
+    backgroundStyle() {
+      return {
+        backgroundImage: `url(${this.heroBackground})`
       }
-      this.$nextTick(() => {
-        this.$refs.password.focus()
-      })
     },
-    handleLogin() {
-      this.$refs.loginForm.validate(valid => {
-        if (valid) {
-          this.loading = true
-          this.$store.dispatch('user/login', this.loginForm).then(() => {
-            this.$router.push({ path: this.redirect || '/' })
-            this.loading = false
-          }).catch(() => {
-            this.loading = false
-          })
-        } else {
-          console.log('error submit!!')
-          return false
+    brandName() {
+      return defaultSettings.brandName || '浩探AI'
+    },
+    brandProductName() {
+      return defaultSettings.brandProductName || defaultSettings.title || '浩探AI智慧音响调度平台'
+    },
+    brandSubtitle() {
+      return defaultSettings.brandSubtitle || '智慧音响调度平台'
+    },
+    brandDescription() {
+      return defaultSettings.brandDescription || '面向校园广播、终端联动与智能编排场景打造的一体化智能调度中枢。'
+    },
+    titlePrimary() {
+      return this.brandName
+    },
+    titleSecondary() {
+      const productName = this.brandProductName || ''
+      if (productName.startsWith(this.brandName)) {
+        const trimmed = productName.slice(this.brandName.length).trim()
+        return trimmed || this.brandSubtitle
+      }
+      return productName || this.brandSubtitle
+    },
+    tokenHint() {
+      const search = new URLSearchParams(window.location.search || '')
+      return search.get('token')
+        ? '已检测到 URL 携带的 token，若自动登录未完成，可在此手工输入远端地址、账号和密码。'
+        : ''
+    },
+    remoteBaseUrlOptions() {
+      const values = []
+      if (this.form.remoteBaseUrl) {
+        values.push(this.form.remoteBaseUrl)
+      }
+      const saved = this.remoteBootstrap.saved_remote_base_url
+      if (saved && values.indexOf(saved) === -1) {
+        values.push(saved)
+      }
+      const suggestions = this.remoteBootstrap.suggested_remote_base_urls || []
+      suggestions.forEach((item) => {
+        if (item && values.indexOf(item) === -1) {
+          values.push(item)
         }
       })
+      return values
+    },
+    showRemoteBaseUrlField() {
+      return !this.remoteBaseUrlConfirmed || !this.form.remoteBaseUrl
+    },
+    candidateSummary() {
+      return (this.remoteBootstrap.candidates || [])
+        .map((item) => `${item.interface || '网卡'}：${item.ip || ''}`)
+        .filter(Boolean)
+        .join('；')
+    }
+  },
+  created() {
+    const redirect = this.$route.query && this.$route.query.redirect
+    this.redirect = redirect ? decodeURIComponent(redirect) : '/'
+    this.initializeRemoteBaseUrl()
+    this.restoreConfirmedRemoteBaseUrl()
+    this.fetchRemoteBootstrap()
+  },
+  methods: {
+    getIncomingSearchValue(key) {
+      const search = new URLSearchParams(window.location.search || '')
+      const value = search.get(key)
+      return value ? String(value).trim() : ''
+    },
+    normalizeRemoteApiPath(path) {
+      const text = String(path || '').trim()
+      if (!text) return '/api'
+      const normalized = text.startsWith('/') ? text : `/${text}`
+      return normalized.replace(/\/+$/, '') || '/'
+    },
+    inferRemoteBaseUrlFromLocation() {
+      const protocol = String(window.location.protocol || '').trim()
+      const hostname = String(window.location.hostname || '').trim()
+      const port = String(defaultSettings.remoteApiPort || '').trim()
+      const path = this.normalizeRemoteApiPath(defaultSettings.remoteApiPath)
+      if (!protocol || !hostname) return ''
+      return `${protocol}//${hostname}${port ? `:${port}` : ''}${path}`
+    },
+    storageAvailable() {
+      try {
+        return Boolean(window && window.localStorage)
+      } catch (error) {
+        return false
+      }
+    },
+    readPersistedRemoteBaseUrl() {
+      if (!this.storageAvailable()) return ''
+      const value = window.localStorage.getItem(REMOTE_BASE_URL_STORAGE_KEY)
+      return value ? String(value).trim() : ''
+    },
+    readRemoteBaseUrlConfirmed() {
+      if (!this.storageAvailable()) return false
+      return window.localStorage.getItem(REMOTE_BASE_URL_CONFIRMED_KEY) === '1'
+    },
+    persistConfirmedRemoteBaseUrl(remoteBaseUrl) {
+      const value = String(remoteBaseUrl || '').trim()
+      if (!value || !this.storageAvailable()) return
+      window.localStorage.setItem(REMOTE_BASE_URL_STORAGE_KEY, value)
+      window.localStorage.setItem(REMOTE_BASE_URL_CONFIRMED_KEY, '1')
+      this.remoteBaseUrlConfirmed = true
+    },
+    editRemoteBaseUrl() {
+      this.remoteBaseUrlConfirmed = false
+      if (this.storageAvailable()) {
+        window.localStorage.removeItem(REMOTE_BASE_URL_CONFIRMED_KEY)
+      }
+    },
+    restoreConfirmedRemoteBaseUrl() {
+      const persistedRemoteBaseUrl = this.readPersistedRemoteBaseUrl()
+      this.persistedRemoteBaseUrl = persistedRemoteBaseUrl
+      this.persistedRemoteBaseUrlConfirmed = Boolean(persistedRemoteBaseUrl && this.readRemoteBaseUrlConfirmed())
+    },
+    initializeRemoteBaseUrl() {
+      const explicitRemoteBaseUrl =
+        this.getIncomingSearchValue('remote_base_url') ||
+        this.getIncomingSearchValue('remoteBaseUrl') ||
+        String((this.$route.query && (this.$route.query.remote_base_url || this.$route.query.remoteBaseUrl)) || '').trim()
+      const incomingToken =
+        this.getIncomingSearchValue('token') ||
+        String((this.$route.query && this.$route.query.token) || '').trim()
+      const resolvedRemoteBaseUrl = explicitRemoteBaseUrl || (incomingToken ? this.inferRemoteBaseUrlFromLocation() : '')
+      this.incomingRemoteBaseUrl = resolvedRemoteBaseUrl
+      if (resolvedRemoteBaseUrl) {
+        this.form.remoteBaseUrl = resolvedRemoteBaseUrl
+        this.remoteBaseUrlConfirmed = false
+      }
+    },
+    async fetchRemoteBootstrap() {
+      this.bootstrapLoading = true
+      try {
+        const response = await getRemoteBootstrap()
+        const data = (response && response.data) || {}
+        this.remoteBootstrap = {
+          candidates: data.candidates || [],
+          suggested_remote_base_urls: data.suggested_remote_base_urls || [],
+          saved_remote_base_url: data.saved_remote_base_url || ''
+        }
+        const savedRemoteBaseUrl = String(data.saved_remote_base_url || '').trim()
+        const suggestedRemoteBaseUrl = String((data.suggested_remote_base_urls || [])[0] || '').trim()
+        if (this.incomingRemoteBaseUrl) {
+          this.form.remoteBaseUrl = this.incomingRemoteBaseUrl
+          this.remoteBaseUrlConfirmed = false
+          return
+        }
+        if (savedRemoteBaseUrl) {
+          this.form.remoteBaseUrl = savedRemoteBaseUrl
+          this.persistConfirmedRemoteBaseUrl(savedRemoteBaseUrl)
+          return
+        }
+        if (this.persistedRemoteBaseUrlConfirmed && this.persistedRemoteBaseUrl) {
+          this.form.remoteBaseUrl = this.persistedRemoteBaseUrl
+          this.remoteBaseUrlConfirmed = true
+          return
+        }
+        this.remoteBaseUrlConfirmed = false
+        if (!this.form.remoteBaseUrl && suggestedRemoteBaseUrl) {
+          this.form.remoteBaseUrl = suggestedRemoteBaseUrl
+        }
+      } catch (error) {
+        if (this.incomingRemoteBaseUrl) {
+          this.form.remoteBaseUrl = this.incomingRemoteBaseUrl
+          this.remoteBaseUrlConfirmed = false
+          return
+        }
+        if (this.persistedRemoteBaseUrlConfirmed && this.persistedRemoteBaseUrl) {
+          this.form.remoteBaseUrl = this.persistedRemoteBaseUrl
+          this.remoteBaseUrlConfirmed = true
+          return
+        }
+        const detail = error && error.response && error.response.data && error.response.data.detail
+        this.errorMessage = (typeof detail === 'string' && detail) || error.message || '加载远端地址候选信息失败'
+      } finally {
+        this.bootstrapLoading = false
+      }
+    },
+    async handleLogin() {
+      if (!this.form.remoteBaseUrl) {
+        this.errorMessage = '请选择或输入远端地址'
+        return
+      }
+      if (!this.form.username || !this.form.password) {
+        this.errorMessage = '请输入完整的账号和密码'
+        return
+      }
+      this.submitting = true
+      this.errorMessage = ''
+      try {
+        await this.$store.dispatch('user/login', this.form)
+        this.persistConfirmedRemoteBaseUrl(this.form.remoteBaseUrl)
+        this.$router.replace(this.redirect || '/')
+      } catch (error) {
+        const detail = error && error.response && error.response.data && error.response.data.detail
+        this.errorMessage = (detail && detail.message) || (typeof detail === 'string' ? detail : '') || error.message || '登录失败'
+      } finally {
+        this.submitting = false
+      }
     }
   }
 }
 </script>
 
-<style lang="scss">
-/* 修复input 背景不协调 和光标变色 */
-/* Detail see https://github.com/PanJiaChen/vue-element-admin/pull/927 */
-
-$bg:#283443;
-$light_gray:#fff;
-$cursor: #fff;
-
-@supports (-webkit-mask: none) and (not (cater-color: $cursor)) {
-  .login-container .el-input input {
-    color: $cursor;
-  }
-}
-
-/* reset element-ui css */
-.login-container {
-  .el-input {
-    display: inline-block;
-    height: 47px;
-    width: 85%;
-
-    input {
-      background: transparent;
-      border: 0px;
-      -webkit-appearance: none;
-      border-radius: 0px;
-      padding: 12px 5px 12px 15px;
-      color: $light_gray;
-      height: 47px;
-      caret-color: $cursor;
-
-      &:-webkit-autofill {
-        box-shadow: 0 0 0px 1000px $bg inset !important;
-        -webkit-text-fill-color: $cursor !important;
-      }
-    }
-  }
-
-  .el-form-item {
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(0, 0, 0, 0.1);
-    border-radius: 5px;
-    color: #454545;
-  }
-}
-</style>
-
 <style lang="scss" scoped>
-$bg:#2d3a4b;
-$dark_gray:#889aa4;
-$light_gray:#eee;
-
 .login-container {
-  min-height: 100%;
-  width: 100%;
-  background-color: $bg;
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
   overflow: hidden;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+}
 
-  .login-form {
-    position: relative;
-    width: 520px;
+.login-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 52% 44%, rgba(108, 160, 255, 0.18) 0%, rgba(108, 160, 255, 0.08) 18%, transparent 42%),
+    linear-gradient(90deg, rgba(3, 8, 19, 0.84) 0%, rgba(6, 13, 27, 0.68) 30%, rgba(6, 13, 27, 0.5) 54%, rgba(5, 10, 21, 0.76) 100%),
+    linear-gradient(180deg, rgba(2, 6, 15, 0.34), rgba(2, 6, 15, 0.62));
+}
+
+.login-panel {
+  position: relative;
+  z-index: 1;
+  width: min(1180px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 430px);
+  gap: 72px;
+  align-items: center;
+}
+
+.login-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 640px;
+  padding-left: clamp(12px, 3vw, 48px);
+  color: #f3f7ff;
+}
+
+.brand-logo-shell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(520px, 92%);
+  min-height: 124px;
+  margin-bottom: 30px;
+}
+
+.brand-logo-glow {
+  position: absolute;
+  inset: auto 14% -10% 14%;
+  height: 52%;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(250, 204, 94, 0.14) 0%, rgba(250, 204, 94, 0.05) 40%, transparent 72%);
+  filter: blur(26px);
+  opacity: 0.86;
+  pointer-events: none;
+}
+
+.brand-logo {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 420px);
+  display: block;
+  filter:
+    drop-shadow(0 10px 26px rgba(4, 9, 20, 0.24))
+    drop-shadow(0 0 18px rgba(255, 210, 98, 0.06));
+}
+
+.brand-text {
+  max-width: 560px;
+}
+
+.brand-kicker {
+  margin: 0 0 14px;
+  font-size: 18px;
+  letter-spacing: 0.28em;
+  color: rgba(201, 214, 239, 0.78);
+}
+
+.login-title {
+  margin: 0;
+  font-weight: 700;
+  font-size: clamp(42px, 5.1vw, 64px);
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+}
+
+.title-line {
+  display: block;
+}
+
+.login-subtitle {
+  max-width: 520px;
+  margin: 22px 0 0;
+  font-size: 20px;
+  line-height: 1.85;
+  color: rgba(220, 229, 244, 0.8);
+}
+
+.login-card {
+  position: relative;
+  padding: 34px 28px 30px;
+  border-radius: 28px;
+  border: 1px solid rgba(145, 181, 255, 0.24);
+  background:
+    linear-gradient(180deg, rgba(30, 43, 73, 0.3), rgba(11, 20, 38, 0.76)),
+    rgba(8, 15, 29, 0.7);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 20px 48px rgba(2, 8, 19, 0.34);
+  backdrop-filter: blur(20px);
+}
+
+.login-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at top left, rgba(109, 151, 255, 0.14), transparent 36%),
+    radial-gradient(circle at bottom right, rgba(255, 255, 255, 0.06), transparent 28%);
+  pointer-events: none;
+}
+
+.card-header,
+.inline-alert,
+.field-label,
+.remote-hint,
+.action-button,
+::v-deep .el-input,
+::v-deep .el-select {
+  position: relative;
+  z-index: 1;
+}
+
+.card-header {
+  margin-bottom: 26px;
+}
+
+.card-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #f4f7ff;
+}
+
+.card-subtitle {
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 1.8;
+  color: rgba(208, 220, 243, 0.76);
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(232, 239, 250, 0.88);
+}
+
+.field-gap {
+  margin-top: 20px;
+}
+
+.inline-alert {
+  margin-bottom: 18px;
+}
+
+.remote-select {
+  width: 100%;
+}
+
+.remote-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: rgba(197, 211, 235, 0.7);
+}
+
+.remote-current strong {
+  margin: 0 4px;
+  color: rgba(255, 255, 255, 0.92);
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.edit-remote-link {
+  margin-left: 8px;
+  color: #5ab2ff;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.edit-remote-link:hover {
+  text-decoration: underline;
+}
+
+.action-button {
+  width: 100%;
+  height: 54px;
+  margin-top: 24px;
+  border: 1px solid rgba(177, 203, 255, 0.2);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(124, 150, 202, 0.86), rgba(92, 112, 154, 0.9));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 14px 28px rgba(7, 16, 31, 0.22);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+::v-deep .el-input__inner {
+  height: 54px;
+  line-height: 54px;
+  padding: 0 20px;
+  border: 1px solid rgba(164, 193, 250, 0.18);
+  border-radius: 999px;
+  background: rgba(79, 91, 122, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -10px 20px rgba(4, 9, 20, 0.14);
+  color: #f4f7ff;
+}
+
+::v-deep .el-input__inner::placeholder {
+  color: rgba(197, 211, 235, 0.42);
+}
+
+@media (max-width: 1080px) {
+  .login-panel {
+    gap: 40px;
+  }
+
+  .login-copy {
+    min-height: auto;
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 960px) {
+  .login-container {
+    padding: 24px 18px;
+  }
+
+  .login-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .login-copy {
+    align-items: center;
+    text-align: center;
+    min-height: auto;
+    padding-top: 24px;
+  }
+
+  .brand-logo-shell {
+    width: min(520px, 100%);
+  }
+
+  .brand-text,
+  .login-subtitle {
     max-width: 100%;
-    padding: 160px 35px 0;
+  }
+
+  .login-card {
+    width: min(430px, 100%);
     margin: 0 auto;
-    overflow: hidden;
+  }
+}
+
+@media (max-width: 640px) {
+  .login-container {
+    padding: 20px 14px;
   }
 
-  .tips {
-    font-size: 14px;
-    color: #fff;
-    margin-bottom: 10px;
-
-    span {
-      &:first-of-type {
-        margin-right: 16px;
-      }
-    }
+  .brand-logo-shell {
+    min-height: 108px;
   }
 
-  .svg-container {
-    padding: 6px 5px 6px 15px;
-    color: $dark_gray;
-    vertical-align: middle;
-    width: 30px;
-    display: inline-block;
+  .brand-logo {
+    width: min(100%, 340px);
   }
 
-  .title-container {
-    position: relative;
-
-    .title {
-      font-size: 26px;
-      color: $light_gray;
-      margin: 0px auto 40px auto;
-      text-align: center;
-      font-weight: bold;
-    }
+  .brand-kicker {
+    font-size: 15px;
+    letter-spacing: 0.2em;
   }
 
-  .show-pwd {
-    position: absolute;
-    right: 10px;
-    top: 7px;
+  .login-title {
+    font-size: clamp(34px, 10vw, 46px);
+  }
+
+  .login-subtitle {
+    margin-top: 16px;
     font-size: 16px;
-    color: $dark_gray;
-    cursor: pointer;
-    user-select: none;
+    line-height: 1.75;
+  }
+
+  .login-card {
+    padding: 28px 20px 24px;
+    border-radius: 24px;
   }
 }
 </style>

@@ -1,19 +1,21 @@
 <template>
-  <div class="sidebar-logo-container" :class="{'collapse':collapse}">
+  <div class="sidebar-logo-container" :class="{ collapse: collapse }">
     <transition name="sidebarLogoFade">
-      <router-link v-if="collapse" key="collapse" class="sidebar-logo-link" to="/">
-        <img v-if="logo" :src="logo" class="sidebar-logo">
-        <h1 v-else class="sidebar-title">{{ title }} </h1>
-      </router-link>
-      <router-link v-else key="expand" class="sidebar-logo-link" to="/">
-        <img v-if="logo" :src="logo" class="sidebar-logo">
-        <h1 class="sidebar-title">{{ title }} </h1>
+      <router-link
+        :key="collapse ? 'collapse' : 'expand'"
+        class="sidebar-logo-link"
+        :class="{ 'is-collapse': collapse }"
+        to="/"
+      >
+        <img :src="brandLogo" alt="浩探AI" class="sidebar-brand-logo">
       </router-link>
     </transition>
   </div>
 </template>
 
 <script>
+import brandLogo from '../../../../only_logo.png'
+
 export default {
   name: 'SidebarLogo',
   props: {
@@ -24,8 +26,7 @@ export default {
   },
   data() {
     return {
-      title: 'Vue Admin Template',
-      logo: 'https://wpimg.wallstcn.com/69a1c46c-eb1c-4b46-8bd4-e9e686ef5251.png'
+      brandLogo
     }
   }
 }
@@ -33,7 +34,7 @@ export default {
 
 <style lang="scss" scoped>
 .sidebarLogoFade-enter-active {
-  transition: opacity 1.5s;
+  transition: opacity 0.35s ease;
 }
 
 .sidebarLogoFade-enter,
@@ -42,41 +43,36 @@ export default {
 }
 
 .sidebar-logo-container {
-  position: relative;
   width: 100%;
-  height: 50px;
-  line-height: 50px;
-  background: #2b2f3a;
-  text-align: center;
-  overflow: hidden;
-
-  & .sidebar-logo-link {
-    height: 100%;
-    width: 100%;
-
-    & .sidebar-logo {
-      width: 32px;
-      height: 32px;
-      vertical-align: middle;
-      margin-right: 12px;
-    }
-
-    & .sidebar-title {
-      display: inline-block;
-      margin: 0;
-      color: #fff;
-      font-weight: 600;
-      line-height: 50px;
-      font-size: 14px;
-      font-family: Avenir, Helvetica Neue, Arial, Helvetica, sans-serif;
-      vertical-align: middle;
-    }
-  }
+  height: 118px;
+  padding: 12px 12px 14px;
 
   &.collapse {
-    .sidebar-logo {
-      margin-right: 0px;
-    }
+    height: 68px;
+    padding: 8px 8px 6px;
   }
+}
+
+.sidebar-logo-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  text-decoration: none;
+}
+
+.sidebar-brand-logo {
+  width: min(100%, 188px);
+  max-height: 78px;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 6px 14px rgba(5, 10, 20, 0.12))
+    drop-shadow(0 0 8px rgba(249, 206, 99, 0.03));
+}
+
+.is-collapse .sidebar-brand-logo {
+  width: min(100%, 40px);
+  max-height: 40px;
 }
 </style>

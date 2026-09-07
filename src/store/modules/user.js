@@ -1,4 +1,4 @@
-import { login, logout, getInfo } from '@/api/user'
+import { getInfo, login, logout, tokenLogin as loginWithToken } from '@/api/user'
 import { getToken, setToken, removeToken } from '@/utils/auth'
 import { resetRouter } from '@/router'
 
@@ -30,9 +30,13 @@ const mutations = {
 const actions = {
   // user login
   login({ commit }, userInfo) {
-    const { username, password } = userInfo
+    const { username, password, remoteBaseUrl } = userInfo
     return new Promise((resolve, reject) => {
-      login({ username: username.trim(), password: password }).then(response => {
+      login({
+        username: username.trim(),
+        password: password,
+        remote_base_url: remoteBaseUrl || ''
+      }).then(response => {
         const { data } = response
         commit('SET_TOKEN', data.token)
         setToken(data.token)
@@ -43,20 +47,45 @@ const actions = {
     })
   },
 
+  tokenLogin({ commit }, remoteToken) {
+    const payload = typeof remoteToken === 'string'
+      ? { token: remoteToken }
+      : {
+        token: remoteToken.token,
+        remote_base_url: remoteToken.remoteBaseUrl || remoteToken.remote_base_url || ''
+      }
+    return new Promise((resolve, reject) => {
+      loginWithToken(payload).then(response => {
+        const { data } = response
+        commit('SET_TOKEN', data.token)
+        setToken(data.token)
+        commit('SET_NAME', data.name || '')
+        commit('SET_AVATAR', data.avatar || '')
+        resolve(data)
+      }).catch(error => {
+        reject(error)
+      })
+    })
+  },
+
   // get user info
   getInfo({ commit, state }) {
     return new Promise((resolve, reject) => {
-      getInfo(state.token).then(response => {
+      getInfo().then(response => {
         const { data } = response
 
-        if (!data) {
+        if (!data || !data.authenticated) {
           return reject('Verification failed, please Login again.')
         }
 
-        const { name, avatar } = data
+        const { name, avatar, token } = data
 
         commit('SET_NAME', name)
         commit('SET_AVATAR', avatar)
+        if (token) {
+          commit('SET_TOKEN', token)
+          setToken(token)
+        }
         resolve(data)
       }).catch(error => {
         reject(error)
@@ -94,4 +123,3 @@ export default {
   mutations,
   actions
 }
-

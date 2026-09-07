@@ -45,9 +45,32 @@ export default {
       }
     }
   },
+  watch: {
+    device: {
+      immediate: true,
+      handler() {
+        this.syncBodyScrollLock()
+      }
+    },
+    'sidebar.opened'() {
+      this.syncBodyScrollLock()
+    }
+  },
+  beforeDestroy() {
+    this.releaseBodyScrollLock()
+  },
   methods: {
     handleClickOutside() {
       this.$store.dispatch('app/closeSideBar', { withoutAnimation: false })
+    },
+    syncBodyScrollLock() {
+      if (typeof document === 'undefined') return
+      const shouldLock = this.device === 'mobile' && this.sidebar.opened
+      document.body.classList.toggle('mobile-sidebar-open', shouldLock)
+    },
+    releaseBodyScrollLock() {
+      if (typeof document === 'undefined') return
+      document.body.classList.remove('mobile-sidebar-open')
     }
   }
 }
@@ -92,5 +115,22 @@ export default {
 
   .mobile .fixed-header {
     width: 100%;
+  }
+
+  @media (max-width: 768px) {
+    .app-wrapper {
+      min-height: 100dvh;
+    }
+
+    .drawer-bg {
+      position: fixed;
+    }
+
+    .fixed-header {
+      top: 0;
+      right: 0;
+      left: 0;
+      width: 100%;
+    }
   }
 </style>
